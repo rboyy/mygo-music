@@ -468,7 +468,7 @@ func (a *app) updatePlugin(lib *library) {
 
 // asksForMore reports whether a new version asks for anything the old didn't.
 func asksForMore(had, wants plugin.Permissions) bool {
-	return more(had.Process, wants.Process) || more(had.Network, wants.Network)
+	return more(had.Process, wants.Process) || more(had.Network, wants.Network) || wants.Player && !had.Player
 }
 
 // more reports whether wants has something had doesn't, which * has all of.

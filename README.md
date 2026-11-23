@@ -189,6 +189,7 @@ A plugin has the JavaScript standard library, timers, `fetch` and its relatives,
 | `host.waitForRedirect({port, path, timeout, page})` | the end of a browser sign-in: listens on `127.0.0.1` and answers the query it's redirected back with. Needs the network permission |
 | `host.webSignIn({url, cookiesOf, until, userAgent})` | a sign-in on the service's own page, for one that has no other way in: the app shows `url` in a window of its own, apart from every other page and forgotten after, and once the cookies named in `until` are all there, closes it and answers `{cookie}`, the Cookie header a request to `cookiesOf` would send. `cookiesOf` has to be a host the network permission reaches. `userAgent` is what the page is told it's shown in |
 | `host.spawn(command, args)` | starts a program, by a path from the plugin's folder or absolute, or a name on `PATH`. Needs the process permission to name it. Returns `{pid, write(text), closeStdin(), readLine(), wait(), kill(), errorOutput()}` |
+| `host.player.state()`, `host.player.pause()`, `host.player.resume()` | the app's own player, for those with the player permission: `state()` answers `{playing, trackId, source, name, artist, position, duration, repeat, shuffle}`, times in milliseconds and `repeat` one of `off`, `all` or `one`. Without it, `host.player` is undefined |
 
 Everything else takes a permission in `plugin.json`:
 
@@ -204,6 +205,7 @@ Everything else takes a permission in `plugin.json`:
 
   `hosts` are hosts or `*.domain`, which the network permission has to reach, or `{setting:key}`, the host of the server a setting names, such as `https://nas.local:5666`, while the network permission reaches it. `*` isn't one. Without `kinds`, they go with both. In `headers`, `{setting:key}` is what the listener filled in and `{storage:key}` what the plugin keeps with `host.storage`, as each is when the request goes out: a token the plugin stores anew goes with the next one, and none is kept in a URL. A header whose value isn't there yet, as before signing in, is left out. The headers a `stream` answers come first. Neither goes on to another host a request is redirected to.
 - `"process": ["bin/helper-*", "ffmpeg"]` lists the programs `host.spawn` can start, for what JavaScript can't do: a path from the plugin's folder or absolute, or a name looked up on `PATH`. A path only matches a path and a name only a name, and `*` matches within one folder, as in a glob. `["*"]`, or `true`, asks for any program, which the listener is warned about. The listener has to allow it in Settings first, as a program can do anything they can. Programs end when the plugin does, and once allowed, `fetch` can reach this machine too, to talk to them. Ship one binary per platform and pick it with `host.platform` and `host.arch`.
+- `"player": true` lets the plugin reach the app's own player through `host.player`: what plays now, and a pause when the listener wants one, as a sleep timer plugin does. It can't queue or skip: `host.player.state()` reads and `pause` and `resume` stop and start what already plays.
 
 ## Credits
 

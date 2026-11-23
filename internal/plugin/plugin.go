@@ -4,7 +4,7 @@
 //	{
 //	  "id": "example", "name": "Example", "main": "index.js", "playback": "stream",
 //	  "minAppVersion": "0.1.8",
-//	  "permissions": {"network": ["api.example.com"], "process": ["bin/helper-*", "ffmpeg"]}
+//	  "permissions": {"network": ["api.example.com"], "process": ["bin/helper-*", "ffmpeg"], "player": true}
 //	}
 //
 // and one module that exports a function for each thing it does, by the names
@@ -15,9 +15,10 @@
 //
 // A plugin reaches nothing but the JavaScript standard library, timers and the
 // host global, unless it asks: fetch reaches the hosts its network permission
-// names, and host.spawn, for those with the process permission that the
+// names, host.spawn, for those with the process permission that the
 // listener granted, starts the programs it names, which can do anything the
-// listener can.
+// listener can, and host.player, for those with the player permission,
+// reaches what the app itself plays.
 package plugin
 
 import (
@@ -60,6 +61,8 @@ type Permissions struct {
 	Network []string `json:"network,omitempty"`
 	// Process lists the programs it may start, once the listener granted it.
 	Process Programs `json:"process,omitempty"`
+	// Player lets host.player read and stop what the app itself plays.
+	Player bool `json:"player,omitempty"`
 }
 
 // Programs are what a plugin may start: each a path from its directory or

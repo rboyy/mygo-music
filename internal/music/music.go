@@ -296,6 +296,20 @@ type RemoteState struct {
 	Device   string `json:"device,omitempty"`
 }
 
+// PlayerState is what the app itself plays, which a plugin with the player
+// permission reads with host.player.state. Times are in milliseconds.
+type PlayerState struct {
+	Playing  bool   `json:"playing"`
+	TrackID  string `json:"trackId,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Artist   string `json:"artist,omitempty"`
+	Position int64  `json:"position"`
+	Duration int64  `json:"duration"`
+	Repeat   string `json:"repeat"`  // off, all or one
+	Shuffle  bool   `json:"shuffle"` // whether the queue plays shuffled
+}
+
 // Playback is how a source's tracks get heard.
 type Playback string
 

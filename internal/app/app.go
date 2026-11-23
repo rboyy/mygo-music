@@ -360,6 +360,7 @@ func Run() error {
 		}
 		a.volume = a.settings.Volume
 		a.pl.SetVolume(a.volume)
+		plugin.SetPlayer(pluginPlayer{a})
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:         mygo.App.Name(),
 			Width:         1180,

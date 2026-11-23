@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -195,6 +196,64 @@ func TestNetworkPermission(t *testing.T) {
 	got, err := allowed.Suggest("a")
 	if err != nil || len(got) != 1 {
 		t.Errorf("fetch to the host named: %v, %v", got, err)
+	}
+}
+
+// A player a plugin can see, as the app's is: Pause stops what State says plays.
+type fakePlayer struct {
+	mu     sync.Mutex
+	state  music.PlayerState
+	pauses int
+}
+
+func (f *fakePlayer) State() music.PlayerState {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state
+}
+
+func (f *fakePlayer) Pause() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.state.Playing = false
+	f.pauses++
+}
+
+func (f *fakePlayer) Resume() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.state.Playing = true
+}
+
+// host.player reaches the app's player for plugins with the player permission,
+// and isn't there at all without it.
+func TestPlayerPermission(t *testing.T) {
+	f := &fakePlayer{state: music.PlayerState{Playing: true, Name: "A Song", Position: 1234}}
+	SetPlayer(f)
+	t.Cleanup(func() { SetPlayer(nil) })
+	source := `export function suggest() {
+  if (!host.player) return ["absent"];
+  const was = host.player.state();
+  host.player.pause();
+  const now = host.player.state();
+  return [was.name, String(was.playing), String(now.playing), String(now.position)];
+}`
+	none := load(t, plain, source)
+	got, err := none.Suggest("")
+	if err != nil || len(got) != 1 || got[0] != "absent" {
+		t.Errorf("without the permission: %v, %v", got, err)
+	}
+	p := load(t, `{"id":"x","permissions":{"player":true}}`, source)
+	got, err = p.Suggest("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"A Song", "true", "false", "1234"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("with the permission: %v, want %v", got, want)
+	}
+	if f.pauses != 1 {
+		t.Errorf("the player was paused %d times", f.pauses)
 	}
 }
 

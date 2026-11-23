@@ -2,6 +2,12 @@
 
 All notable changes to MyGo Music are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- Plugins can ask for a `player` permission, which gives them `host.player`: `state()` says what the app itself plays, and `pause()` and `resume()` stop and start it, so a plugin like a sleep timer can end playback when the listener asks.
+
 ## [0.1.25] - 2026-11-14
 
 ### Added

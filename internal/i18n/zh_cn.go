@@ -111,6 +111,7 @@ var zhCN = map[string]string{
 	"Dock and Menu Bar":                                      "程序坞与菜单栏",
 	"Download and Install Automatically":                     "自动下载并安装",
 	"Download new versions in the background, to take effect the next time the app opens": "在后台下载新版本，下次打开时生效",
+	"Can control playback":  "可控制播放",
 	"Can reach %s":          "可访问 %s",
 	"Can reach any website": "可访问任何网站",
 	"This plugin wants to start programs, which can do anything you can. Only allow it if you trust it.": "这个插件想启动程序，这些程序能做你能做的任何事。只有信任它时才允许。",

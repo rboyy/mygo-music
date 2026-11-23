@@ -710,6 +710,9 @@ func (a *app) pluginPermissions(c *ui.Context, lib *library, g guarded, p palett
 		}
 		ui.Text(c, reach).FontSize(12).TextColor(p.muted).LineHeight(1.4)
 	}
+	if perms.Player {
+		ui.Text(c, T("Can control playback")).FontSize(12).TextColor(p.muted).LineHeight(1.4)
+	}
 	if len(perms.Process) == 0 {
 		return
 	}

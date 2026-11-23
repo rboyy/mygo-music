@@ -64,6 +64,22 @@ var webSignIn = func(WebSignIn) (string, error) { return "", errors.New("can't s
 // SetWebSignIn says how to show a sign-in page, and get its cookies.
 func SetWebSignIn(show func(WebSignIn) (string, error)) { webSignIn = show }
 
+// Player is the app's own player, which host.player reaches for plugins with
+// the player permission: State says what plays now, Pause stops it and
+// Resume starts it again. The app sets it.
+type Player interface {
+	State() music.PlayerState
+	Pause()
+	Resume()
+}
+
+// playerAPI answers host.player for those who ask for it. Unset, as in tests
+// without an app, its calls say so.
+var playerAPI Player
+
+// SetPlayer gives plugins the app's player.
+func SetPlayer(p Player) { playerAPI = p }
+
 type native = func(*moejs.Realm, moejs.Value, []moejs.Value) (moejs.Value, error)
 
 // installHost gives the runtime the host global and console.
@@ -85,7 +101,7 @@ func (p *Plugin) installHost(v *vm) error {
 	}); err != nil {
 		return err
 	}
-	return rt.SetGlobal("host", map[string]any{
+	host := map[string]any{
 		"platform": runtime.GOOS,
 		"arch":     runtime.GOARCH,
 		"dir":      p.dir,
@@ -153,7 +169,34 @@ func (p *Plugin) installHost(v *vm) error {
 		"waitForRedirect": moejs.NativeFunc(p.waitForRedirect(v)),
 		"webSignIn":       moejs.NativeFunc(p.webSignIn(v)),
 		"spawn":           moejs.NativeFunc(p.spawn(v)),
-	})
+	}
+	// Without the permission, host.player isn't there at all, so a plugin
+	// can tell whether this app lets it reach the player.
+	if p.manifest.Permissions.Player {
+		host["player"] = map[string]any{
+			"state": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
+				if playerAPI == nil {
+					return moejs.Undefined(), errors.New("no player to reach")
+				}
+				return rt.FromGo(playerAPI.State())
+			}),
+			"pause": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
+				if playerAPI == nil {
+					return moejs.Undefined(), errors.New("no player to reach")
+				}
+				playerAPI.Pause()
+				return moejs.Undefined(), nil
+			}),
+			"resume": moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
+				if playerAPI == nil {
+					return moejs.Undefined(), errors.New("no player to reach")
+				}
+				playerAPI.Resume()
+				return moejs.Undefined(), nil
+			}),
+		}
+	}
+	return rt.SetGlobal("host", host)
 }
 
 func (p *Plugin) storageGet(v *vm) native {
