@@ -1,0 +1,56 @@
+{
+  "id": "pocketcasts",
+  "name": "Pocket Casts",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.8",
+  "main": "index.js",
+  "playback": "stream",
+  "permissions": { "network": ["*"] },
+  "settings": [
+    {
+      "key": "email",
+      "label": "Email",
+      "help": "Your Pocket Casts account email",
+      "link": "https://pocketcasts.com/register"
+    },
+    {
+      "key": "password",
+      "label": "Password",
+      "type": "password",
+      "help": "Your Pocket Casts password"
+    },
+    {
+      "key": "region",
+      "label": "Discover region",
+      "type": "select",
+      "options": [
+        { "value": "global", "label": "Global" },
+        { "value": "us", "label": "United States" },
+        { "value": "gb", "label": "United Kingdom" },
+        { "value": "au", "label": "Australia" },
+        { "value": "ca", "label": "Canada" },
+        { "value": "de", "label": "Germany" },
+        { "value": "fr", "label": "France" },
+        { "value": "jp", "label": "Japan" },
+        { "value": "cn", "label": "China" },
+        { "value": "hk", "label": "Hong Kong" },
+        { "value": "tw", "label": "Taiwan" },
+        { "value": "sg", "label": "Singapore" },
+        { "value": "kr", "label": "South Korea" },
+        { "value": "in", "label": "India" },
+        { "value": "es", "label": "Spain" },
+        { "value": "br", "label": "Brazil" }
+      ]
+    }
+  ],
+  "navigation": [
+    { "builtin": "home" },
+    { "title": "Up Next", "page": "upnext", "icon": "playlist" },
+    { "title": "New Episodes", "page": "newepisodes", "icon": "calendar" },
+    { "builtin": "shows" },
+    { "title": "In Progress", "page": "inprogress", "icon": "note" },
+    { "title": "Starred", "builtin": "liked", "icon": "heart" },
+    { "title": "History", "page": "history", "icon": "star" },
+    { "title": "Discover", "page": "discover", "icon": "chart" }
+  ]
+}
