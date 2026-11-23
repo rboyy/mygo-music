@@ -353,15 +353,21 @@ export async function recent() {
 // ---------- sleep timer ----------
 
 // MyGo gives a plugin no way to pause what plays, so the timer stops between
-// episodes. It can, because the player asks for the next episode's stream the
+// episodes. It can, because the player asks the next episode's stream the
 // moment the current one starts (it preloads it, ahead.go): that call is where
-// the timer decides. If the next episode would begin after the timer runs out,
-// it is refused here; the player then skips what's left of the queue and
-// stops. A fired timer keeps refusing for a short grace, so the skip pass
-// holds, and clears itself after, so the listener can play again.
+// the timer decides, and the played notice, which comes at each start, is
+// where it keeps track of what plays. If the next episode would begin after
+// the timer runs out, it is refused here; the player then skips what's left of
+// the queue and stops. A fired timer keeps refusing for a short grace, so the
+// skip pass holds, and clears itself after, so the listener can play again.
+// One episode may slip past the timer: the one that starts after it ran out
+// was asked for before the timer was set, or was already on disk. It plays to
+// its end, and the timer stops there. What never slips is a play the listener
+// started themselves: far from any boundary, it clears the timer instead.
 
 const SLEEP_GRACE = 90 * 1000;
 const PRELOAD_WINDOW = 15 * 1000;
+const END_WINDOW = 180 * 1000;
 
 function sleepTimer() {
   return host.storage.get("sleepTimer") || null;
@@ -378,8 +384,25 @@ function sleepStopMessage(timer) {
     : t("Sleep timer: time is up, playback stops after this episode.");
 }
 
+// Whether this call belongs to the queue going on its own: it comes right
+// after a start (the player asking for the next episode's audio), or near
+// where the episode playing was to end (its turn, or the pass over what's
+// left after the timer fired). Anything else is the listener playing.
+function sleepAuto(timer, now) {
+  const cur = timer.lastPlayed;
+  if (!cur) return false;
+  if (now - cur.at <= PRELOAD_WINDOW) return true;
+  return cur.durMs > 0 && Math.abs(now - (cur.at + cur.durMs)) <= END_WINDOW;
+}
+
+function sleepFire(timer, now) {
+  timer.firedAt = now;
+  saveSleepTimer(timer);
+  return sleepStopMessage(timer);
+}
+
 // sleepGate answers why a track must not play, or "" to let it.
-function sleepGate() {
+function sleepGate(id) {
   const timer = sleepTimer();
   if (!timer || !timer.mode) return "";
   const now = Date.now();
@@ -388,33 +411,33 @@ function sleepGate() {
       saveSleepTimer(null);
       return "";
     }
-    return sleepStopMessage(timer);
-  }
-  if (timer.mode === "episodes") {
-    if ((timer.episodesLeft || 0) <= 0) {
-      timer.firedAt = now;
-      saveSleepTimer(timer);
-      return sleepStopMessage(timer);
-    }
-    return "";
-  }
-  // Time mode. The episode playing runs to its end; what the gate decides is
-  // whether the next one may start. A stream asked long after the last start
-  // is the listener playing something themselves, which the timer doesn't
-  // block; and one that comes after the timer already ran out is a listening
-  // session of its own, the timer's night being over, so it lets both go.
-  const cur = timer.lastPlayed;
-  if (!cur || !cur.durMs) return "";
-  if (now - cur.at > PRELOAD_WINDOW) return "";
-  if (cur.at > timer.expiresAt) {
+    if (sleepAuto(timer, now)) return sleepStopMessage(timer);
     saveSleepTimer(null);
     return "";
   }
-  if (timer.expiresAt < cur.at + cur.durMs) {
-    timer.firedAt = now;
-    saveSleepTimer(timer);
-    return sleepStopMessage(timer);
+  if (timer.mode === "episodes") {
+    if ((timer.episodesLeft || 0) > 0) return "";
+    return sleepFire(timer, now);
   }
+  // Time mode. After the timer ran out, the queue going on its own is stopped
+  // at the next boundary; the listener's own play clears the timer, its night
+  // being over. While there is time left, only the preload of the next
+  // episode decides: if it would begin after the timer runs out, refuse it
+  // now, so the episode playing is the last one.
+  const cur = timer.lastPlayed;
+  if (now >= timer.expiresAt) {
+    if (sleepAuto(timer, now)) return sleepFire(timer, now);
+    saveSleepTimer(null);
+    return "";
+  }
+  if (!cur || now - cur.at > PRELOAD_WINDOW) return "";
+  if (cur.durMs > 0 && timer.expiresAt < cur.at + cur.durMs) {
+    return sleepFire(timer, now);
+  }
+  // The next episode may start: remember it, so its start is known to be the
+  // queue's own doing even when the episode's length is off.
+  timer.expected = { id, due: cur.at + (cur.durMs || 0) };
+  saveSleepTimer(timer);
   return "";
 }
 
@@ -422,16 +445,34 @@ function playedHook(id) {
   const timer = sleepTimer();
   if (!timer || !timer.mode) return;
   const track = trackCache.get(id);
-  timer.lastPlayed = { id, at: Date.now(), durMs: (track && track.duration) || 0 };
-  if (
-    timer.mode === "episodes" &&
-    !timer.firedAt &&
-    (timer.episodesLeft || 0) > 0 &&
-    id !== timer.setDuring &&
-    id !== timer.lastCounted
-  ) {
-    timer.episodesLeft--;
-    timer.lastCounted = id;
+  const now = Date.now();
+  const prev = timer.lastPlayed;
+  const auto = sleepAuto({ lastPlayed: prev }, now);
+  timer.lastPlayed = { id, at: now, durMs: (track && track.duration) || 0 };
+  if (timer.mode === "episodes") {
+    if (!timer.firedAt) {
+      if ((timer.episodesLeft || 0) > 0 && id !== timer.setDuring && id !== timer.lastCounted) {
+        timer.episodesLeft--;
+        timer.lastCounted = id;
+      }
+      // An episode already on disk never asks for its stream, so the count
+      // can run out unnoticed: stop at this one's end.
+      if ((timer.episodesLeft || 0) <= 0) timer.firedAt = now;
+    }
+    saveSleepTimer(timer);
+    return;
+  }
+  if (!timer.firedAt && now >= timer.expiresAt) {
+    const expected = timer.expected;
+    const expectedHolds = !!(expected && expected.id === id && now <= (expected.due || 0) + 30 * 60000);
+    if (expectedHolds || auto) {
+      // The queue went past the timer on its own; stop at this episode's end.
+      timer.firedAt = now;
+    } else {
+      // The listener started this themselves; the timer's night is over.
+      saveSleepTimer(null);
+      return;
+    }
   }
   saveSleepTimer(timer);
 }
@@ -478,7 +519,7 @@ function sleepPage() {
       : { title: t("Custom"), subtitle: t("Set your own minutes in the plugin settings"), page: "sleep" },
   );
   const episodeLinks = [1, 2, 3, 5].map((n) => ({
-    title: n === 1 ? t("After this episode") : t("After") + " " + n + " " + t("episodes"),
+    title: n === 1 ? t("After the next episode") : t("After") + " " + n + " " + t("episodes"),
     page: "sleep:set:episodes:" + n,
   }));
   return {
@@ -933,7 +974,7 @@ function typeFromUrl(url) {
 }
 
 export async function stream({ id }) {
-  const stop = sleepGate();
+  const stop = sleepGate(id);
   if (stop) throw new Error(stop);
   const [uuid, podcast] = splitId(id);
   let url = "";
