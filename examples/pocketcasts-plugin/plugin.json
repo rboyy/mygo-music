@@ -1,7 +1,7 @@
 {
   "id": "pocketcasts",
   "name": "Pocket Casts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "0.1.8",
   "main": "index.js",
   "playback": "stream",
@@ -18,6 +18,11 @@
       "label": "Password",
       "type": "password",
       "help": "Your Pocket Casts password"
+    },
+    {
+      "key": "sleepCustom",
+      "label": "Sleep timer, custom minutes",
+      "help": "Your own sleep timer length in minutes, offered on the Sleep Timer page"
     },
     {
       "key": "region",
@@ -51,6 +56,7 @@
     { "title": "In Progress", "page": "inprogress", "icon": "note" },
     { "title": "Starred", "builtin": "liked", "icon": "heart" },
     { "title": "History", "page": "history", "icon": "star" },
+    { "title": "Sleep Timer", "page": "sleep", "icon": "note" },
     { "title": "Discover", "page": "discover", "icon": "chart" }
   ]
 }

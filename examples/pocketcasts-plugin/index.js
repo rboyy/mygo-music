@@ -323,6 +323,7 @@ function loadRecent() {
 }
 
 export function played({ id }) {
+  playedHook(id);
   const log = loadRecent().filter((x) => x.id !== id);
   log.unshift({ id, at: Date.now(), track: trackCache.get(id) || null });
   recentLog = log.slice(0, 50);
@@ -347,6 +348,147 @@ export async function recent() {
     } catch {}
   }
   return tracks;
+}
+
+// ---------- sleep timer ----------
+
+// MyGo gives a plugin no way to pause what plays, so the timer stops between
+// episodes. It can, because the player asks for the next episode's stream the
+// moment the current one starts (it preloads it, ahead.go): that call is where
+// the timer decides. If the next episode would begin after the timer runs out,
+// it is refused here; the player then skips what's left of the queue and
+// stops. A fired timer keeps refusing for a short grace, so the skip pass
+// holds, and clears itself after, so the listener can play again.
+
+const SLEEP_GRACE = 90 * 1000;
+const PRELOAD_WINDOW = 15 * 1000;
+
+function sleepTimer() {
+  return host.storage.get("sleepTimer") || null;
+}
+
+function saveSleepTimer(timer) {
+  if (timer) host.storage.set("sleepTimer", timer);
+  else host.storage.remove("sleepTimer");
+}
+
+function sleepStopMessage(timer) {
+  return timer.mode === "episodes"
+    ? t("Sleep timer: episode limit reached, playback stops.")
+    : t("Sleep timer: time is up, playback stops after this episode.");
+}
+
+// sleepGate answers why a track must not play, or "" to let it.
+function sleepGate() {
+  const timer = sleepTimer();
+  if (!timer || !timer.mode) return "";
+  const now = Date.now();
+  if (timer.firedAt) {
+    if (now - timer.firedAt >= SLEEP_GRACE) {
+      saveSleepTimer(null);
+      return "";
+    }
+    return sleepStopMessage(timer);
+  }
+  if (timer.mode === "episodes") {
+    if ((timer.episodesLeft || 0) <= 0) {
+      timer.firedAt = now;
+      saveSleepTimer(timer);
+      return sleepStopMessage(timer);
+    }
+    return "";
+  }
+  // Time mode. The episode playing runs to its end; what the gate decides is
+  // whether the next one may start. A stream asked long after the last start
+  // is the listener playing something themselves, which the timer doesn't
+  // block; and one that comes after the timer already ran out is a listening
+  // session of its own, the timer's night being over, so it lets both go.
+  const cur = timer.lastPlayed;
+  if (!cur || !cur.durMs) return "";
+  if (now - cur.at > PRELOAD_WINDOW) return "";
+  if (cur.at > timer.expiresAt) {
+    saveSleepTimer(null);
+    return "";
+  }
+  if (timer.expiresAt < cur.at + cur.durMs) {
+    timer.firedAt = now;
+    saveSleepTimer(timer);
+    return sleepStopMessage(timer);
+  }
+  return "";
+}
+
+function playedHook(id) {
+  const timer = sleepTimer();
+  if (!timer || !timer.mode) return;
+  const track = trackCache.get(id);
+  timer.lastPlayed = { id, at: Date.now(), durMs: (track && track.duration) || 0 };
+  if (
+    timer.mode === "episodes" &&
+    !timer.firedAt &&
+    (timer.episodesLeft || 0) > 0 &&
+    id !== timer.setDuring &&
+    id !== timer.lastCounted
+  ) {
+    timer.episodesLeft--;
+    timer.lastCounted = id;
+  }
+  saveSleepTimer(timer);
+}
+
+function sleepStatus(timer) {
+  if (!timer || !timer.mode) return t("Timer is off");
+  if (timer.firedAt) return t("Timer fired. Playback stopped.");
+  if (timer.mode === "episodes") {
+    return t("Episodes left") + ": " + (timer.episodesLeft || 0);
+  }
+  const left = Math.ceil(((timer.expiresAt || 0) - Date.now()) / 60000);
+  return left > 0 ? t("Remaining") + ": " + left + " " + t("min") : t("Timer fired. Playback stopped.");
+}
+
+function sleepCustomMinutes() {
+  const n = parseInt(setting("sleepCustom"), 10);
+  return n >= 1 && n <= 720 ? n : 0;
+}
+
+function setSleepTimer(mode, n) {
+  const last = loadRecent()[0] || null;
+  const timer =
+    mode === "time"
+      ? {
+          mode: "time",
+          expiresAt: Date.now() + n * 60000,
+          lastPlayed: last ? { id: last.id, at: last.at, durMs: (last.track && last.track.duration) || 0 } : null,
+        }
+      : { mode: "episodes", episodesLeft: n, setDuring: last ? last.id : "", lastCounted: "" };
+  saveSleepTimer(timer);
+}
+
+function sleepPage() {
+  const timer = sleepTimer();
+  const armed = !!(timer && timer.mode && !timer.firedAt);
+  const timeLinks = [{ title: t("Off"), subtitle: armed ? "" : t("Timer is off"), page: "sleep:off" }];
+  for (const m of [5, 15, 30, 45, 60, 90]) {
+    timeLinks.push({ title: m + " " + t("min"), page: "sleep:set:time:" + m });
+  }
+  const custom = sleepCustomMinutes();
+  timeLinks.push(
+    custom
+      ? { title: t("Custom") + ": " + custom + " " + t("min"), page: "sleep:set:time:" + custom }
+      : { title: t("Custom"), subtitle: t("Set your own minutes in the plugin settings"), page: "sleep" },
+  );
+  const episodeLinks = [1, 2, 3, 5].map((n) => ({
+    title: n === 1 ? t("After this episode") : t("After") + " " + n + " " + t("episodes"),
+    page: "sleep:set:episodes:" + n,
+  }));
+  return {
+    title: t("Sleep Timer"),
+    description: sleepStatus(timer) + "\n" + t("Playback stops between episodes; the one playing runs to its end."),
+    sections: [
+      { title: t("After a time"), links: timeLinks },
+      { title: t("After episodes"), links: episodeLinks },
+    ],
+  };
 }
 
 // ---------- shows (podcasts) ----------
@@ -546,6 +688,21 @@ export async function browse({ page }) {
   }
   if (kind === "similar") return similarPage(arg);
   if (kind === "my") return myPage();
+  if (kind === "sleep") {
+    if (arg === "off") {
+      saveSleepTimer(null);
+      return sleepPage();
+    }
+    if (arg.startsWith("set:")) {
+      const parts = arg.split(":");
+      const mode = parts[1] === "episodes" ? "episodes" : "time";
+      const n = parseInt(parts[2], 10);
+      const max = mode === "episodes" ? 50 : 720;
+      if (n >= 1 && n <= max) setSleepTimer(mode, n);
+      return sleepPage();
+    }
+    return sleepPage();
+  }
   throw fail("unavailable", "no such page: " + page);
 }
 
@@ -776,6 +933,8 @@ function typeFromUrl(url) {
 }
 
 export async function stream({ id }) {
+  const stop = sleepGate();
+  if (stop) throw new Error(stop);
   const [uuid, podcast] = splitId(id);
   let url = "";
   if (podcast) {
